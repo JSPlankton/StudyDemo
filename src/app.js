@@ -35,6 +35,16 @@ import {
 } from './content.mjs';
 
 import { ECONOMIST_KNOWLEDGE_CARDS, ECONOMIST_PLAN_MILESTONES } from './exams.mjs';
+import {
+  clearSyncBinding,
+  fetchRemoteState,
+  hasLocalLearningState,
+  loadSyncBinding,
+  makeSyncPayload,
+  normalizeSyncAccount,
+  pushRemoteState,
+  saveSyncBinding,
+} from './sync-client.mjs';
 
 const STORAGE_KEY = 'shnu-adult-study-plan-state-v1';
 const app = document.querySelector('#app');
@@ -45,6 +55,14 @@ const importFile = document.querySelector('#importFile');
 let startupIssue = null;
 let storageIssue = null;
 let state = loadState();
+let syncBinding = loadSyncBinding();
+let syncStatus = {
+  type: syncBinding ? 'pending' : 'muted',
+  message: syncBinding ? '正在检查云端进度...' : '未绑定云同步。',
+};
+let syncTimer = null;
+let initialCloudSyncStarted = false;
+let pendingSyncAccount = '';
 let view = 'today';
 let selectedDate = getTodayString();
 let selectedSubject = '全部';
@@ -96,10 +114,13 @@ function saveState() {
   }
 }
 
-function setState(nextState) {
+function setState(nextState, options = {}) {
   state = nextState;
   const saved = saveState();
   render();
+  if (saved && !options.skipCloudSync) {
+    scheduleCloudSync();
+  }
   if (!saved) {
     window.alert(`保存失败：${storageIssue}。当前进度只在本页面临时可见，请先导出备份。`);
   }
@@ -184,6 +205,201 @@ function resetTransientWork() {
   lessonResult = null;
 }
 
+function syncMessage(error) {
+  return error instanceof Error ? error.message : '云同步请求失败。';
+}
+
+function formatSyncTime(value) {
+  if (!value) return '暂无云端时间';
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function setSyncStatus(message, type = 'muted') {
+  syncStatus = { message, type };
+  renderProfile();
+}
+
+function scheduleCloudSync() {
+  if (!syncBinding?.account || startupIssue) return;
+  if (syncTimer) {
+    window.clearTimeout(syncTimer);
+  }
+  syncStatus = { type: 'pending', message: '本机进度已更新，稍后自动上传。' };
+  renderProfile();
+  syncTimer = window.setTimeout(() => {
+    syncTimer = null;
+    pushCloudState({ silent: true });
+  }, 900);
+}
+
+async function pushCloudState({ account = syncBinding?.account, silent = false } = {}) {
+  if (!account) return null;
+
+  try {
+    const normalizedAccount = normalizeSyncAccount(account);
+    if (!silent) {
+      setSyncStatus('正在上传本机进度...', 'pending');
+    }
+    const expectedRevision =
+      syncBinding?.account === normalizedAccount && Number.isFinite(syncBinding.revision)
+        ? syncBinding.revision
+        : null;
+    const result = await pushRemoteState(
+      normalizedAccount,
+      makeSyncPayload(exportState(state), { expectedRevision, requireLocalAccounts: true }),
+    );
+    syncBinding = saveSyncBinding({
+      account: normalizedAccount,
+      updatedAt: result.updatedAt,
+      revision: result.revision,
+    });
+    setSyncStatus(`已同步：${formatSyncTime(result.updatedAt)}。`, 'ok');
+    return result;
+  } catch (error) {
+    setSyncStatus(`同步停止：${syncMessage(error)}。请先拉取云端进度，确认后再继续同步。`, 'error');
+    return null;
+  }
+}
+
+async function pullCloudState({ account = syncBinding?.account, uploadIfMissing = false, silent = false } = {}) {
+  if (!account) return null;
+
+  try {
+    const normalizedAccount = normalizeSyncAccount(account);
+    if (!silent) {
+      setSyncStatus('正在拉取云端进度...', 'pending');
+    }
+    const remote = await fetchRemoteState(normalizedAccount);
+    if (!remote.exists) {
+      if (uploadIfMissing) {
+        setSyncStatus('云端暂无进度，正在创建同步账号...', 'pending');
+        return pushCloudState({ account: normalizedAccount, silent: true });
+      }
+      setSyncStatus('云端还没有这个同步账号的进度，可先选择“绑定并上传”。', 'error');
+      return null;
+    }
+
+    const imported = importState(JSON.stringify(remote.state));
+    try {
+      localStorage.setItem(`${STORAGE_KEY}-before-cloud-pull`, exportState(state));
+    } catch {
+      // Pull still works; manual export remains available if browser storage is full.
+    }
+    state = imported;
+    startupIssue = null;
+    resetTransientWork();
+    const saved = saveState();
+    syncBinding = saveSyncBinding({
+      account: normalizedAccount,
+      updatedAt: remote.updatedAt,
+      revision: remote.revision,
+    });
+    pendingSyncAccount = '';
+    render();
+    setSyncStatus(`已拉取云端进度：${formatSyncTime(remote.updatedAt)}。`, 'ok');
+    if (!saved) {
+      window.alert(`云端进度已读取，但本机保存失败：${storageIssue}。请先导出备份。`);
+    }
+    return remote;
+  } catch (error) {
+    setSyncStatus(`拉取失败：${syncMessage(error)}`, 'error');
+    return null;
+  }
+}
+
+async function bindAndUploadSync(form) {
+  const data = new FormData(form);
+  try {
+    const account = normalizeSyncAccount(data.get('syncAccount'));
+    pendingSyncAccount = account;
+    if (!hasLocalLearningState(exportState(state))) {
+      setSyncStatus('本机还没有学习账号，不能上传空进度；如果已有云端进度，请点“拉取云端”。', 'error');
+      return;
+    }
+    setSyncStatus('正在检查云端是否已有进度...', 'pending');
+    const remote = await fetchRemoteState(account);
+    if (remote.exists) {
+      setSyncStatus('云端已有这个同步账号的进度，已停止上传；请先“拉取云端”或换一个同步账号。', 'error');
+      return;
+    }
+    syncBinding = saveSyncBinding({ account });
+    pendingSyncAccount = '';
+    renderProfile();
+    pushCloudState({ account });
+  } catch (error) {
+    window.alert(syncMessage(error));
+  }
+}
+
+function pullSyncFromForm(form) {
+  const data = new FormData(form);
+  try {
+    const account = normalizeSyncAccount(data.get('syncAccount'));
+    pendingSyncAccount = account;
+    pullCloudState({ account });
+  } catch (error) {
+    window.alert(syncMessage(error));
+  }
+}
+
+function unbindCloudSync() {
+  if (syncTimer) {
+    window.clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+  try {
+    clearSyncBinding();
+  } catch {
+    // In-memory unbinding is still useful even if browser storage cannot update.
+  }
+  syncBinding = null;
+  setSyncStatus('已解除云同步，进度只保存在当前浏览器。', 'muted');
+}
+
+async function startInitialCloudSync() {
+  if (initialCloudSyncStarted || !syncBinding?.account || startupIssue) return;
+  initialCloudSyncStarted = true;
+
+  if (state.accounts.length === 0) {
+    pullCloudState({ silent: true, uploadIfMissing: false });
+    return;
+  }
+
+  try {
+    const remote = await fetchRemoteState(syncBinding.account);
+    if (!remote.exists) {
+      setSyncStatus('云端暂无进度，正在上传本机进度创建同步账号...', 'pending');
+      pushCloudState({ silent: true });
+      return;
+    }
+
+    if (!Number.isFinite(syncBinding.revision)) {
+      setSyncStatus('云端已有进度，本机还没有同步基线；请先手动拉取云端。', 'error');
+      return;
+    }
+
+    if (remote.revision !== syncBinding.revision) {
+      setSyncStatus('云端已有其他设备更新，未自动覆盖本机；需要时请手动拉取云端。', 'error');
+      return;
+    }
+
+    setSyncStatus(`已绑定云同步：${formatSyncTime(remote.updatedAt)}。`, 'ok');
+  } catch (error) {
+    setSyncStatus(`云同步检查失败：${syncMessage(error)}`, 'error');
+  }
+}
+
 function ensureSelectedSubject(context = activeExamContext()) {
   const subjects = getExamSubjects(context.examId, context.majorId);
   if (subjects.length === 0) {
@@ -251,9 +467,53 @@ function renderNav() {
   });
 }
 
+function renderSyncPanel() {
+  const statusClass = `sync-status ${syncStatus.type === 'ok' ? 'is-ok' : ''} ${
+    syncStatus.type === 'error' ? 'is-error' : ''
+  }`;
+  const statusText = syncStatus.message || '未绑定云同步。';
+  const canUploadLocal = state.accounts.length > 0;
+
+  if (syncBinding?.account) {
+    return `
+      <div class="profile-card sync-card">
+        <div class="sync-head">
+          <label>
+            云同步账号
+            <b>${escapeHtml(syncBinding.account)}</b>
+          </label>
+          <span class="tag primary">已绑定</span>
+        </div>
+        <div class="sync-actions">
+          <button class="primary-button" type="button" data-action="sync-now" ${canUploadLocal ? '' : 'disabled'}>立即同步</button>
+          <button class="secondary-button" type="button" data-action="sync-pull-bound">拉取云端</button>
+          <button class="ghost-button" type="button" data-action="sync-unbind">解除绑定</button>
+        </div>
+        <p class="${statusClass}">${escapeHtml(statusText)}</p>
+        <p class="sync-warning">无密码同步：知道这个账号的人可以读取或覆盖进度，建议用不容易猜的同步码。</p>
+      </div>
+    `;
+  }
+
+  return `
+    <form id="syncForm" class="profile-card sync-card">
+      <label>
+        云同步账号
+        <input class="field" name="syncAccount" type="text" maxlength="32" autocomplete="off" placeholder="home-2026-x7k9" value="${escapeHtml(pendingSyncAccount)}">
+      </label>
+      <div class="sync-actions">
+        <button class="primary-button" type="submit" ${canUploadLocal ? '' : 'disabled'}>绑定并上传</button>
+        <button class="secondary-button" type="button" data-action="sync-pull-input">拉取云端</button>
+      </div>
+      <p class="${statusClass}">${escapeHtml(statusText)}</p>
+      <p class="sync-warning">只绑定账号，不设置密码；请把同步账号当作私人同步码保存。</p>
+    </form>
+  `;
+}
+
 function renderProfile() {
   if (state.accounts.length === 0) {
-    profileBar.innerHTML = '';
+    profileBar.innerHTML = renderSyncPanel();
     return;
   }
 
@@ -319,6 +579,7 @@ function renderProfile() {
           : ''
       }
     </div>
+    ${renderSyncPanel()}
     <p class="muted">本地账号：${escapeHtml(account?.name || '')} 的任务、考试和错题按账号与考试分类独立保存。</p>
   `;
 }
@@ -336,7 +597,7 @@ function renderSetup() {
         <input class="field" name="name" type="text" maxlength="16" placeholder="账号名称">
         <button class="secondary-button" type="submit">创建账号</button>
       </form>
-      <p class="muted">部署到外网后，不同手机浏览器的数据仍各自保存在本机；需要跨设备同步时再接云端登录。</p>
+      <p class="muted">创建本地学习账号后，可在顶部绑定云同步账号；不设置密码，适合家庭自用同步。</p>
     </section>
   `;
 }
@@ -985,6 +1246,9 @@ function importBackup(file) {
       currentQuiz = null;
       currentResult = null;
       render();
+      if (saved) {
+        scheduleCloudSync();
+      }
       if (!saved) {
         window.alert(`导入成功但保存失败：${storageIssue}。请立即导出备份。`);
       }
@@ -1023,6 +1287,25 @@ document.addEventListener('click', (event) => {
 
   if (action === 'import') {
     importFile.click();
+  }
+
+  if (action === 'sync-pull-input') {
+    const form = button.closest('form');
+    if (form) {
+      pullSyncFromForm(form);
+    }
+  }
+
+  if (action === 'sync-now') {
+    pushCloudState();
+  }
+
+  if (action === 'sync-pull-bound') {
+    pullCloudState();
+  }
+
+  if (action === 'sync-unbind') {
+    unbindCloudSync();
   }
 
   if (action === 'select-major-card') {
@@ -1170,6 +1453,11 @@ document.addEventListener('submit', (event) => {
     setState(createAccount(state, data.get('name')));
   }
 
+  if (event.target.id === 'syncForm') {
+    event.preventDefault();
+    bindAndUploadSync(event.target);
+  }
+
   if (event.target.id === 'quizForm') {
     event.preventDefault();
     submitQuiz(event.target);
@@ -1211,3 +1499,4 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 }
 
 render();
+startInitialCloudSync();

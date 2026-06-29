@@ -30,7 +30,11 @@ http://127.0.0.1:4174/index.html
 
 ## 数据边界
 
-当前版本是纯前端本地账号，数据保存在当前浏览器的 `localStorage`。同一台手机同一浏览器内，两个账号可以独立记录进度；换设备或换浏览器不会自动同步。后续如果要外网登录和多设备同步，可以把 `src/app-core.mjs` 的状态对象接到云端数据库。
+当前版本默认仍先把数据保存在当前浏览器的 `localStorage`。同一台手机同一浏览器内，“我”和“老婆”等本地学习账号会独立记录进度、错题和考试记录。
+
+如果部署了 `sync_server.py` 并在 Nginx 上反代 `/api/`，页面顶部可以绑定一个“云同步账号”。这是无密码同步：同步账号本身就是私人同步码，知道它的人可以读取或覆盖云端进度。适合家庭自用，不适合作为公开多用户系统。
+
+云同步服务需要 Python 3.6+，CentOS 服务器上建议使用 `python3 sync_server.py` 或 systemd 里的 `/usr/bin/python3`。
 
 ## 文件说明
 
@@ -39,6 +43,8 @@ http://127.0.0.1:4174/index.html
 - `src/content.mjs`：计划节点、知识库、题库。
 - `src/app-core.mjs`：账号、计划、判分、统计、备份逻辑。
 - `src/app.js`：浏览器交互。
+- `src/sync-client.mjs`：无密码云同步的前端请求与账号校验。
+- `sync_server.py`：SQLite 云同步 API 服务。
 - `tests/app-core.test.mjs`：核心逻辑测试。
 
 ## 官方信息

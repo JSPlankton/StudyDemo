@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const serveScript = path.join(root, 'serve.py');
+const pythonCommand = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -37,7 +38,7 @@ async function waitForServer(url) {
 
 test('local preview server returns browser-safe module MIME types', async () => {
   const port = await getFreePort();
-  const server = spawn('python', [serveScript, '--directory', root, '--port', String(port)], {
+  const server = spawn(pythonCommand, [serveScript, '--directory', root, '--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -48,6 +49,7 @@ test('local preview server returns browser-safe module MIME types', async () => 
     const core = await fetch(`http://127.0.0.1:${port}/src/app-core.mjs`);
     const content = await fetch(`http://127.0.0.1:${port}/src/content.mjs`);
     const exams = await fetch(`http://127.0.0.1:${port}/src/exams.mjs`);
+    const syncClient = await fetch(`http://127.0.0.1:${port}/src/sync-client.mjs`);
     const manifest = await fetch(`http://127.0.0.1:${port}/manifest.webmanifest`);
     const css = await fetch(`http://127.0.0.1:${port}/styles.css`);
     const svg = await fetch(`http://127.0.0.1:${port}/assets/icon.svg`);
@@ -57,6 +59,7 @@ test('local preview server returns browser-safe module MIME types', async () => 
     assert.match(core.headers.get('content-type') || '', /text\/javascript/);
     assert.match(content.headers.get('content-type') || '', /text\/javascript/);
     assert.match(exams.headers.get('content-type') || '', /text\/javascript/);
+    assert.match(syncClient.headers.get('content-type') || '', /text\/javascript/);
     assert.match(manifest.headers.get('content-type') || '', /application\/manifest\+json/);
     assert.match(css.headers.get('content-type') || '', /text\/css/);
     assert.match(svg.headers.get('content-type') || '', /image\/svg\+xml/);

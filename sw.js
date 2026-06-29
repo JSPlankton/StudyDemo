@@ -1,5 +1,5 @@
-const PRECACHE_NAME = 'study-plan-precache-v6';
-const RUNTIME_CACHE_NAME = 'study-plan-runtime-v6';
+const PRECACHE_NAME = 'study-plan-precache-v7';
+const RUNTIME_CACHE_NAME = 'study-plan-runtime-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const ASSETS = [
   './src/app-core.mjs',
   './src/content.mjs',
   './src/exams.mjs',
+  './src/sync-client.mjs',
 ];
 
 self.addEventListener('install', (event) => {
@@ -71,6 +72,10 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
+
+  if (url.pathname.startsWith('/api/')) {
+    return;
+  }
 
   const acceptsHtml = event.request.headers.get('accept')?.includes('text/html');
   if (event.request.mode === 'navigate' || acceptsHtml) {
