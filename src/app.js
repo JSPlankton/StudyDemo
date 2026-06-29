@@ -11,6 +11,7 @@ import {
   getExamCategories,
   getExamSubjects,
   getLessonForTask,
+  getLessonSpeechTargets,
   getStats,
   getTodayString,
   getWrongBookItems,
@@ -150,6 +151,21 @@ function questionCountForMode(mode) {
   if (mode === 'final') return 24;
   if (mode === 'wrong') return 12;
   return 8;
+}
+
+function speakEnglish(text) {
+  const speech = window.speechSynthesis;
+  if (!speech || typeof window.SpeechSynthesisUtterance === 'undefined') {
+    window.alert('当前浏览器不支持朗读功能，可以换 Chrome、Edge 或 Safari 再试。');
+    return;
+  }
+
+  speech.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = 0.85;
+  utterance.pitch = 1;
+  speech.speak(utterance);
 }
 
 function activeAccount() {
@@ -383,6 +399,7 @@ function renderToday() {
   const percent = plan.length === 0 ? 0 : Math.round((doneCount / plan.length) * 100);
 
   return `
+    ${renderExamShortcut(context)}
     <section class="panel">
       <div class="section-head">
         <div>
@@ -406,6 +423,32 @@ function renderToday() {
 
 function renderStat(value, label) {
   return `<div class="stat-card"><b>${escapeHtml(value)}</b><span>${escapeHtml(label)}</span></div>`;
+}
+
+function renderExamShortcut(context) {
+  const exams = getExamCategories();
+  return `
+    <section class="panel exam-shortcut">
+      <div class="section-head">
+        <div>
+          <h2>学习分类</h2>
+          <p class="muted">当前：${escapeHtml(context.category.name)}${context.major ? ` / ${escapeHtml(context.major.name)}` : ''}</p>
+        </div>
+      </div>
+      <div class="exam-switch-grid">
+        ${exams
+          .map(
+            (exam) => `
+              <button class="exam-switch-card ${exam.id === context.examId ? 'is-active' : ''}" type="button" data-action="switch-exam-card" data-exam-id="${escapeHtml(exam.id)}">
+                <b>${escapeHtml(exam.shortName)}</b>
+                <span>${escapeHtml(exam.detail)}</span>
+              </button>
+            `,
+          )
+          .join('')}
+      </div>
+    </section>
+  `;
 }
 
 function renderTaskCard(task, account) {
@@ -448,6 +491,7 @@ function renderLesson() {
   const examples = currentLesson.examples || [];
   const flashcards = currentLesson.flashcards || [];
   const questions = currentLesson.questions || [];
+  const speechTargets = getLessonSpeechTargets(currentLesson);
 
   return `
     <section class="panel lesson-hero">
@@ -467,8 +511,8 @@ function renderLesson() {
     </section>
     <section class="lesson-stack">
       ${sections.map(renderLessonSection).join('')}
-      ${examples.length ? renderLessonExamples(examples) : ''}
-      ${flashcards.length ? renderFlashcards(flashcards) : ''}
+      ${examples.length ? renderLessonExamples(examples, speechTargets) : ''}
+      ${flashcards.length ? renderFlashcards(flashcards, speechTargets) : ''}
     </section>
     ${lessonResult ? renderLessonResult(lessonResult) : ''}
     ${questions.length ? renderLessonQuestions(currentLesson) : '<section class="empty">本课暂无随堂题。</section>'}
@@ -489,37 +533,59 @@ function renderLessonSection(section) {
   `;
 }
 
-function renderLessonExamples(examples) {
+function renderSpeechButton(target) {
+  if (!target) return '';
+  return `
+    <button class="speech-button" type="button" data-action="speak-text" data-speech-text="${escapeHtml(target.text)}" aria-label="${escapeHtml(target.label)}：${escapeHtml(target.text)}">
+      <span aria-hidden="true">▶</span>
+      <span>${escapeHtml(target.label)}</span>
+    </button>
+  `;
+}
+
+function renderLessonExamples(examples, speechTargets = []) {
   return `
     <article class="lesson-block">
       <h3>例题</h3>
       ${examples
         .map(
-          (example) => `
-            <div class="example-box">
-              <b>${escapeHtml(example.prompt)}</b>
-              <p>${escapeHtml(example.explanation)}</p>
-            </div>
-          `,
+          (example, index) => {
+            const speechTarget = speechTargets.find((target) => target.id === `example-${index}`);
+            return `
+              <div class="example-box">
+                <div class="lesson-line-action">
+                  <b>${escapeHtml(example.prompt)}</b>
+                  ${renderSpeechButton(speechTarget)}
+                </div>
+                <p>${escapeHtml(example.explanation)}</p>
+              </div>
+            `;
+          },
         )
         .join('')}
     </article>
   `;
 }
 
-function renderFlashcards(cards) {
+function renderFlashcards(cards, speechTargets = []) {
   return `
     <article class="lesson-block">
       <h3>记忆卡片</h3>
       <div class="flashcard-grid">
         ${cards
           .map(
-            (card) => `
-              <div class="flashcard">
-                <b>${escapeHtml(card.front)}</b>
-                <span>${escapeHtml(card.back)}</span>
-              </div>
-            `,
+            (card, index) => {
+              const speechTarget = speechTargets.find((target) => target.id === `flashcard-${index}`);
+              return `
+                <div class="flashcard">
+                  <div class="lesson-line-action">
+                    <b>${escapeHtml(card.front)}</b>
+                    ${renderSpeechButton(speechTarget)}
+                  </div>
+                  <span>${escapeHtml(card.back)}</span>
+                </div>
+              `;
+            },
           )
           .join('')}
       </div>
@@ -963,6 +1029,16 @@ document.addEventListener('click', (event) => {
     selectedSubject = '全部';
     resetTransientWork();
     setState(selectEconomistMajor(state, button.dataset.majorId));
+  }
+
+  if (action === 'switch-exam-card') {
+    selectedSubject = '全部';
+    resetTransientWork();
+    setState(selectExamCategory(state, button.dataset.examId));
+  }
+
+  if (action === 'speak-text') {
+    speakEnglish(button.dataset.speechText || '');
   }
 
   if (action === 'export-raw-state') {

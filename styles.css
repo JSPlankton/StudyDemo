@@ -283,6 +283,40 @@ h3 {
   line-height: 1.45;
 }
 
+.exam-switch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.exam-switch-card {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+}
+
+.exam-switch-card.is-active {
+  border-color: rgba(15, 118, 110, 0.5);
+  background: var(--surface-soft);
+}
+
+.exam-switch-card b {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.exam-switch-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .button-row,
 .segmented,
 .date-row {
@@ -521,6 +555,37 @@ h3 {
   line-height: 1.45;
 }
 
+.lesson-line-action {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.lesson-line-action b {
+  min-width: 0;
+}
+
+.speech-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #ffffff;
+  color: var(--primary-strong);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.speech-button span:first-child {
+  font-size: 10px;
+}
+
 .flashcard-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -650,7 +715,12 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .exam-switch-grid,
   .flashcard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .lesson-line-action {
+    display: grid;
   }
 }

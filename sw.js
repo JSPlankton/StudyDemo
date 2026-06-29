@@ -1,5 +1,5 @@
-const PRECACHE_NAME = 'study-plan-precache-v5';
-const RUNTIME_CACHE_NAME = 'study-plan-runtime-v5';
+const PRECACHE_NAME = 'study-plan-precache-v6';
+const RUNTIME_CACHE_NAME = 'study-plan-runtime-v6';
 const ASSETS = [
   './',
   './index.html',

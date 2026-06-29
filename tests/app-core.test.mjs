@@ -10,6 +10,7 @@ import {
   getDailyPlan,
   getExamSubjects,
   getLessonForTask,
+  getLessonSpeechTargets,
   buildQuiz,
   completeTask,
   completeLesson,
@@ -182,6 +183,23 @@ test('today tasks map to study lessons with content and questions', () => {
   assert.equal(lesson.taskIds.includes('english-daily'), true);
   assert.equal(lesson.sections.length > 0, true);
   assert.equal(lesson.questions.length > 0, true);
+});
+
+test('english lessons expose word and sentence pronunciation targets', () => {
+  const lesson = getLessonForTask('english-daily', '2026-06-29');
+  const targets = getLessonSpeechTargets(lesson);
+
+  assert.equal(targets.some((target) => target.kind === 'word' && target.text === 'benefit'), true);
+  assert.equal(
+    targets.some((target) => target.kind === 'sentence' && target.text === 'She has worked in Shanghai since 2020.'),
+    true,
+  );
+});
+
+test('non-english lessons do not expose pronunciation targets', () => {
+  const lesson = getLessonForTask('politics-core', '2026-06-29');
+
+  assert.deepEqual(getLessonSpeechTargets(lesson), []);
 });
 
 test('daily lessons rotate by date within the same task', () => {

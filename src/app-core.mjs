@@ -362,6 +362,16 @@ function economistMajorSubject(majorId) {
   return getEconomistMajor(majorId)?.name || '专业知识和实务';
 }
 
+function hasEnglishLetters(value) {
+  return /[A-Za-z]/.test(String(value || ''));
+}
+
+function speechKindForText(value) {
+  const text = String(value || '').trim();
+  const wordCount = (text.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g) || []).length;
+  return wordCount <= 2 ? 'word' : 'sentence';
+}
+
 function getEconomistDailyPlan(dateString, context) {
   const majorId = context?.majorId || null;
   const major = getEconomistMajor(majorId);
@@ -596,6 +606,37 @@ export function getLessonForTask(taskId, dateString = todayString(), context = {
   }
   const index = dateToDayNumber(dateString) % candidates.length;
   return clone(candidates[index]);
+}
+
+export function getLessonSpeechTargets(lesson) {
+  if (!lesson || lesson.subject !== '英语') return [];
+
+  const targets = [];
+  (lesson.examples || []).forEach((example, index) => {
+    const text = String(example.prompt || '').trim();
+    if (hasEnglishLetters(text)) {
+      targets.push({
+        id: `example-${index}`,
+        kind: 'sentence',
+        label: '读句子',
+        text,
+      });
+    }
+  });
+
+  (lesson.flashcards || []).forEach((card, index) => {
+    const text = String(card.front || '').trim();
+    if (hasEnglishLetters(text)) {
+      targets.push({
+        id: `flashcard-${index}`,
+        kind: speechKindForText(text),
+        label: speechKindForText(text) === 'word' ? '读单词' : '读短语',
+        text,
+      });
+    }
+  });
+
+  return targets;
 }
 
 export function completeLesson(state, dateString, taskId, lesson, answers = {}, context = {}) {
