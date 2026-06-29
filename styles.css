@@ -190,6 +190,11 @@ h3 {
   padding: 10px;
 }
 
+.profile-card.exam-card {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
 .profile-card label {
   display: grid;
   gap: 4px;
@@ -241,6 +246,41 @@ h3 {
 .stack {
   display: grid;
   gap: 10px;
+}
+
+.major-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.major-card {
+  display: grid;
+  gap: 6px;
+  min-height: 128px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+
+.major-card.is-recommended {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: var(--surface-soft);
+}
+
+.major-card b {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.major-card small,
+.major-card span:last-child {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .button-row,
@@ -605,6 +645,7 @@ h3 {
   }
 
   .profile-card,
+  .profile-card.exam-card,
   .inline-form {
     grid-template-columns: 1fr;
   }

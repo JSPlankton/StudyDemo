@@ -4,16 +4,23 @@ import {
   createAccount,
   createInitialState,
   exportState,
+  getActiveExamContext,
   getActiveAccount,
   getDailyPlan,
+  getEconomistMajors,
+  getExamCategories,
+  getExamSubjects,
   getLessonForTask,
   getStats,
   getTodayString,
+  getWrongBookItems,
   completeLesson,
   gradeQuiz,
   importState,
   isTaskCompleted,
   markWrongReviewed,
+  selectEconomistMajor,
+  selectExamCategory,
   switchAccount,
   uncompleteTask,
 } from './app-core.mjs';
@@ -23,9 +30,10 @@ import {
   KNOWLEDGE_CARDS,
   PLAN_MILESTONES,
   QUESTION_BANK,
-  REVIEW_POINTS,
   SUBJECTS,
 } from './content.mjs';
+
+import { ECONOMIST_KNOWLEDGE_CARDS, ECONOMIST_PLAN_MILESTONES } from './exams.mjs';
 
 const STORAGE_KEY = 'shnu-adult-study-plan-state-v1';
 const app = document.querySelector('#app');
@@ -148,7 +156,45 @@ function activeAccount() {
   return getActiveAccount(state);
 }
 
+function activeExamContext() {
+  return getActiveExamContext(activeAccount());
+}
+
+function resetTransientWork() {
+  currentQuiz = null;
+  currentResult = null;
+  currentLesson = null;
+  currentLessonTaskId = null;
+  lessonResult = null;
+}
+
+function ensureSelectedSubject(context = activeExamContext()) {
+  const subjects = getExamSubjects(context.examId, context.majorId);
+  if (subjects.length === 0) {
+    selectedSubject = '全部';
+    return;
+  }
+  if (!subjects.includes(selectedSubject)) {
+    selectedSubject = subjects[0];
+  }
+}
+
+function renderBrand() {
+  const account = activeAccount();
+  const context = account ? activeExamContext() : null;
+  const eyebrow = document.querySelector('.brand .eyebrow');
+  const title = document.querySelector('.brand h1');
+  if (!eyebrow || !title) return;
+
+  eyebrow.textContent = context?.category?.name || '学习计划';
+  title.textContent = context?.category?.headline || '拿证学习系统';
+  document.title = context?.category?.headline
+    ? `${context.category.shortName}学习计划`
+    : '拿证学习计划';
+}
+
 function render() {
+  renderBrand();
   renderProfile();
   renderNav();
 
@@ -165,6 +211,13 @@ function render() {
   }
 
   bottomNav.hidden = false;
+  const context = activeExamContext();
+  ensureSelectedSubject(context);
+  if (!context.ready) {
+    app.innerHTML = renderMajorSelection(context);
+    return;
+  }
+
   const routes = {
     today: renderToday,
     calendar: renderCalendar,
@@ -189,6 +242,23 @@ function renderProfile() {
   }
 
   const account = activeAccount();
+  const context = activeExamContext();
+  const examOptions = getExamCategories()
+    .map(
+      (exam) =>
+        `<option value="${escapeHtml(exam.id)}" ${exam.id === context.examId ? 'selected' : ''}>${escapeHtml(
+          exam.name,
+        )}</option>`,
+    )
+    .join('');
+  const majorOptions = getEconomistMajors()
+    .map(
+      (major) =>
+        `<option value="${escapeHtml(major.id)}" ${major.id === context.majorId ? 'selected' : ''}>${escapeHtml(
+          `${major.name}${major.recommended ? '（推荐）' : ''}`,
+        )}</option>`,
+    )
+    .join('');
   const options = state.accounts
     .map(
       (item) =>
@@ -216,7 +286,24 @@ function renderProfile() {
           </form>`
         : ''
     }
-    <p class="muted">本地账号：${escapeHtml(account?.name || '')} 的任务、考试和错题独立保存。</p>
+    <div class="profile-card exam-card">
+      <label>
+        考试分类
+        <select data-action="switch-exam">${examOptions}</select>
+      </label>
+      ${
+        context.category.requiresMajorSelection
+          ? `<label>
+              经济师专业
+              <select data-action="select-economist-major">
+                <option value="" ${context.majorId ? '' : 'selected'}>先选择专业方向</option>
+                ${majorOptions}
+              </select>
+            </label>`
+          : ''
+      }
+    </div>
+    <p class="muted">本地账号：${escapeHtml(account?.name || '')} 的任务、考试和错题按账号与考试分类独立保存。</p>
   `;
 }
 
@@ -234,6 +321,33 @@ function renderSetup() {
         <button class="secondary-button" type="submit">创建账号</button>
       </form>
       <p class="muted">部署到外网后，不同手机浏览器的数据仍各自保存在本机；需要跨设备同步时再接云端登录。</p>
+    </section>
+  `;
+}
+
+function renderMajorSelection(context) {
+  const majors = getEconomistMajors();
+  return `
+    <section class="panel setup-panel">
+      <div>
+        <h2>先选择经济师专业方向</h2>
+        <p class="muted">中级经济师是《经济基础知识》加一个《专业知识和实务》方向。选择后，系统才会生成对应专业的每日计划、课程和题库。</p>
+      </div>
+      <div class="major-grid">
+        ${majors
+          .map(
+            (major) => `
+              <button class="major-card ${major.recommended ? 'is-recommended' : ''}" type="button" data-action="select-major-card" data-major-id="${escapeHtml(major.id)}">
+                <span class="tag ${major.recommended ? 'primary' : ''}">${major.recommended ? '默认推荐' : '可选方向'}</span>
+                <b>${escapeHtml(major.name)}</b>
+                <small>${escapeHtml(major.difficulty)}</small>
+                <span>${escapeHtml(major.note)}</span>
+              </button>
+            `,
+          )
+          .join('')}
+      </div>
+      <p class="muted">我的建议：如果主要目标是稳妥拿中级职称，人力资源管理更适合作为默认方向；如果你的工作证明更偏财税、金融、建筑等，再选择对应专业。</p>
     </section>
   `;
 }
@@ -260,9 +374,12 @@ function renderRecovery() {
 
 function renderToday() {
   const account = activeAccount();
-  const plan = getDailyPlan(selectedDate);
-  const stats = getStats(account);
-  const doneCount = plan.filter((task) => isTaskCompleted(account, selectedDate, task.id)).length;
+  const context = activeExamContext();
+  const plan = getDailyPlan(selectedDate, context);
+  const stats = getStats(account, context.examId, context.majorId);
+  const doneCount = plan.filter((task) =>
+    isTaskCompleted(account, selectedDate, task.id, context.examId, context.majorId),
+  ).length;
   const percent = plan.length === 0 ? 0 : Math.round((doneCount / plan.length) * 100);
 
   return `
@@ -270,7 +387,7 @@ function renderToday() {
       <div class="section-head">
         <div>
           <h2>今日任务</h2>
-          <p class="muted">${escapeHtml(selectedDate)}，英语每日必学。</p>
+          <p class="muted">${escapeHtml(selectedDate)}，${escapeHtml(context.category.shortName)}学习计划。</p>
         </div>
         <input class="date-field" type="date" data-action="date-input" value="${escapeHtml(selectedDate)}">
       </div>
@@ -292,7 +409,8 @@ function renderStat(value, label) {
 }
 
 function renderTaskCard(task, account) {
-  const checked = isTaskCompleted(account, selectedDate, task.id);
+  const context = activeExamContext();
+  const checked = isTaskCompleted(account, selectedDate, task.id, context.examId, context.majorId);
   const tagClass = task.subject === '英语' ? 'primary' : task.subject === '高数（二）' ? 'blue' : 'orange';
   const points = (task.review || []).slice(0, 3);
 
@@ -433,6 +551,7 @@ function renderLessonResult(record) {
 
 function renderCalendar() {
   const account = activeAccount();
+  const context = activeExamContext();
   const firstWeekday = new Date(cursor.year, cursor.month, 1).getDay();
   const daysInMonth = new Date(cursor.year, cursor.month + 1, 0).getDate();
   const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -440,8 +559,10 @@ function renderCalendar() {
   const days = Array.from({ length: daysInMonth }, (_, index) => {
     const day = index + 1;
     const dateKey = makeDateKey(cursor.year, cursor.month, day);
-    const plan = getDailyPlan(dateKey);
-    const completed = account.progress?.[dateKey]?.completedTaskIds?.length || 0;
+    const plan = getDailyPlan(dateKey, context);
+    const completed = plan.filter((task) =>
+      isTaskCompleted(account, dateKey, task.id, context.examId, context.majorId),
+    ).length;
     const done = plan.length > 0 && completed >= plan.length;
     return `
       <button class="day-button ${done ? 'is-done' : ''} ${dateKey === selectedDate ? 'is-selected' : ''}" type="button" data-action="select-date" data-date="${dateKey}">
@@ -474,29 +595,35 @@ function renderCalendar() {
 
 function renderPractice() {
   const account = activeAccount();
-  const wrongIds = account.wrongBook.map((item) => item.questionId);
+  const context = activeExamContext();
+  const wrongItems = getWrongBookItems(account, context.examId, context.majorId);
+  const wrongIds = wrongItems.map((item) => item.questionId);
   const canStartWrong = wrongIds.length > 0;
+  const bankLabel =
+    context.examId === 'economist-intermediate-2026'
+      ? `${context.major?.name || '所选专业'}经济师种子题`
+      : `${QUESTION_BANK.length}道种子题`;
 
   return `
     <section class="panel">
       <div class="section-head">
         <div>
           <h2>题库与考试</h2>
-          <p class="muted">${QUESTION_BANK.length}道种子题，后续可以继续扩充。</p>
+          <p class="muted">${escapeHtml(bankLabel)}，后续可以继续扩充。</p>
         </div>
         <button class="primary-button" type="button" data-action="start-quiz" ${selectedMode === 'wrong' && !canStartWrong ? 'disabled' : ''}>
           开始
         </button>
       </div>
-      ${renderQuizControls(canStartWrong)}
+      ${renderQuizControls(canStartWrong, context)}
     </section>
     ${currentResult ? renderQuizResult(currentResult) : ''}
     ${currentQuiz ? renderQuizForm(currentQuiz) : ''}
   `;
 }
 
-function renderQuizControls(canStartWrong) {
-  const subjects = ['全部', '英语', '政治', '高数（二）', '学位与论文', '行政管理'];
+function renderQuizControls(canStartWrong, context = activeExamContext()) {
+  const subjects = getExamSubjects(context.examId, context.majorId);
   const modes = ['daily', 'weekly', 'monthly', 'final', 'wrong'];
   return `
     <div class="stack">
@@ -572,8 +699,9 @@ function renderQuestion(question, index) {
 
 function renderWrongBook() {
   const account = activeAccount();
-  const stats = getStats(account);
-  const items = [...account.wrongBook].reverse();
+  const context = activeExamContext();
+  const stats = getStats(account, context.examId, context.majorId);
+  const items = getWrongBookItems(account, context.examId, context.majorId).reverse();
 
   return `
     <section class="panel">
@@ -616,7 +744,11 @@ function renderWrongCard(item) {
 
 function renderPlan() {
   const account = activeAccount();
-  const stats = getStats(account);
+  const context = activeExamContext();
+  const stats = getStats(account, context.examId, context.majorId);
+  const milestones =
+    context.examId === 'economist-intermediate-2026' ? ECONOMIST_PLAN_MILESTONES : PLAN_MILESTONES;
+  const cards = context.examId === 'economist-intermediate-2026' ? ECONOMIST_KNOWLEDGE_CARDS : KNOWLEDGE_CARDS;
   return `
     <section class="panel">
       <h2>进度统计</h2>
@@ -629,7 +761,7 @@ function renderPlan() {
     <section class="panel">
       <h2>拿证计划表</h2>
       <div class="milestone-list">
-        ${PLAN_MILESTONES.map(
+        ${milestones.map(
           (item) => `
             <article class="milestone">
               <div class="task-meta">
@@ -645,7 +777,7 @@ function renderPlan() {
     <section class="panel">
       <h2>复习要点</h2>
       <div class="knowledge-list">
-        ${KNOWLEDGE_CARDS.map(renderKnowledgeCard).join('')}
+        ${cards.map(renderKnowledgeCard).join('')}
       </div>
     </section>
     <section class="panel">
@@ -654,17 +786,18 @@ function renderPlan() {
         <button class="primary-button" type="button" data-action="export">导出进度</button>
         <button class="secondary-button" type="button" data-action="import">导入进度</button>
       </div>
-      <p class="muted">版本 ${escapeHtml(APP_VERSION)}。官方报名、缴费、录取和学位规则以当年上海招考热线、上海师范大学继续教育学院公告为准。</p>
+      <p class="muted">版本 ${escapeHtml(APP_VERSION)}。官方报名、缴费、考试、录取、成绩和证书规则以当年官方公告为准。</p>
     </section>
   `;
 }
 
 function renderKnowledgeCard(card) {
+  const cardCode = card.examId === 'economist-intermediate-2026' ? 'economist' : subjectIdByName(card.subject);
   return `
     <article class="knowledge-card">
       <div class="task-meta">
         <span class="tag primary">${escapeHtml(card.subject)}</span>
-        <span class="tag">${escapeHtml(subjectIdByName(card.subject))}</span>
+        <span class="tag">${escapeHtml(cardCode)}</span>
       </div>
       <h3>${escapeHtml(card.title)}</h3>
       <p>${escapeHtml(card.body)}</p>
@@ -684,8 +817,9 @@ function createDefaultAccounts() {
 }
 
 function openLesson(taskId) {
+  const context = activeExamContext();
   currentLessonTaskId = taskId;
-  currentLesson = getLessonForTask(taskId, selectedDate);
+  currentLesson = getLessonForTask(taskId, selectedDate, context);
   lessonResult = null;
   currentQuiz = null;
   currentResult = null;
@@ -695,8 +829,11 @@ function openLesson(taskId) {
 
 function startQuiz() {
   const account = activeAccount();
-  const wrongQuestionIds = account.wrongBook.map((item) => item.questionId);
+  const context = activeExamContext();
+  const wrongQuestionIds = getWrongBookItems(account, context.examId, context.majorId).map((item) => item.questionId);
   currentQuiz = buildQuiz({
+    examId: context.examId,
+    majorId: context.majorId,
     subject: selectedSubject,
     mode: selectedMode,
     count: questionCountForMode(selectedMode),
@@ -709,6 +846,7 @@ function startQuiz() {
 
 function submitLesson(form) {
   if (!currentLesson || !currentLessonTaskId) return;
+  const context = activeExamContext();
   const data = new FormData(form);
   const answers = {};
   currentLesson.questions.forEach((question) => {
@@ -718,9 +856,13 @@ function submitLesson(form) {
     }
   });
 
-  const next = completeLesson(state, selectedDate, currentLessonTaskId, currentLesson, answers);
+  const next = completeLesson(state, selectedDate, currentLessonTaskId, currentLesson, answers, context);
   const account = getActiveAccount(next);
-  const records = account.progress?.[selectedDate]?.lessonRecords || [];
+  const progressKey =
+    context.examId === 'adult-undergraduate'
+      ? selectedDate
+      : `${context.examId}:${context.majorId || 'unselected'}:${selectedDate}`;
+  const records = account.progress?.[progressKey]?.lessonRecords || [];
   lessonResult = [...records].reverse().find(
     (record) => record.taskId === currentLessonTaskId && record.lessonId === currentLesson.id,
   ) || null;
@@ -791,11 +933,7 @@ document.addEventListener('click', (event) => {
   const viewButton = event.target.closest('[data-view]');
   if (viewButton) {
     view = viewButton.dataset.view;
-    currentQuiz = null;
-    currentResult = null;
-    currentLesson = null;
-    currentLessonTaskId = null;
-    lessonResult = null;
+    resetTransientWork();
     render();
     return;
   }
@@ -819,6 +957,12 @@ document.addEventListener('click', (event) => {
 
   if (action === 'import') {
     importFile.click();
+  }
+
+  if (action === 'select-major-card') {
+    selectedSubject = '全部';
+    resetTransientWork();
+    setState(selectEconomistMajor(state, button.dataset.majorId));
   }
 
   if (action === 'export-raw-state') {
@@ -867,15 +1011,13 @@ document.addEventListener('click', (event) => {
 
   if (action === 'choose-subject') {
     selectedSubject = button.dataset.subject;
-    currentQuiz = null;
-    currentResult = null;
+    resetTransientWork();
     render();
   }
 
   if (action === 'choose-mode') {
     selectedMode = button.dataset.mode;
-    currentQuiz = null;
-    currentResult = null;
+    resetTransientWork();
     render();
   }
 
@@ -911,12 +1053,21 @@ document.addEventListener('change', (event) => {
   const action = target.dataset.action;
 
   if (action === 'switch-account') {
-    currentQuiz = null;
-    currentResult = null;
-    currentLesson = null;
-    currentLessonTaskId = null;
-    lessonResult = null;
+    resetTransientWork();
+    selectedSubject = '全部';
     setState(switchAccount(state, target.value));
+  }
+
+  if (action === 'switch-exam') {
+    resetTransientWork();
+    selectedSubject = '全部';
+    setState(selectExamCategory(state, target.value));
+  }
+
+  if (action === 'select-economist-major' && target.value) {
+    resetTransientWork();
+    selectedSubject = '全部';
+    setState(selectEconomistMajor(state, target.value));
   }
 
   if (action === 'date-input') {
@@ -927,9 +1078,10 @@ document.addEventListener('change', (event) => {
   }
 
   if (action === 'toggle-task') {
+    const context = activeExamContext();
     const next = target.checked
-      ? completeTask(state, selectedDate, target.dataset.taskId)
-      : uncompleteTask(state, selectedDate, target.dataset.taskId);
+      ? completeTask(state, selectedDate, target.dataset.taskId, context.examId, context.majorId)
+      : uncompleteTask(state, selectedDate, target.dataset.taskId, context.examId, context.majorId);
     setState(next);
   }
 });

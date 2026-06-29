@@ -47,6 +47,7 @@ test('local preview server returns browser-safe module MIME types', async () => 
     const app = await fetch(`http://127.0.0.1:${port}/src/app.js`);
     const core = await fetch(`http://127.0.0.1:${port}/src/app-core.mjs`);
     const content = await fetch(`http://127.0.0.1:${port}/src/content.mjs`);
+    const exams = await fetch(`http://127.0.0.1:${port}/src/exams.mjs`);
     const manifest = await fetch(`http://127.0.0.1:${port}/manifest.webmanifest`);
     const css = await fetch(`http://127.0.0.1:${port}/styles.css`);
     const svg = await fetch(`http://127.0.0.1:${port}/assets/icon.svg`);
@@ -55,6 +56,7 @@ test('local preview server returns browser-safe module MIME types', async () => 
     assert.match(app.headers.get('content-type') || '', /text\/javascript/);
     assert.match(core.headers.get('content-type') || '', /text\/javascript/);
     assert.match(content.headers.get('content-type') || '', /text\/javascript/);
+    assert.match(exams.headers.get('content-type') || '', /text\/javascript/);
     assert.match(manifest.headers.get('content-type') || '', /application\/manifest\+json/);
     assert.match(css.headers.get('content-type') || '', /text\/css/);
     assert.match(svg.headers.get('content-type') || '', /image\/svg\+xml/);

@@ -1,5 +1,5 @@
-const PRECACHE_NAME = 'shnu-adult-study-plan-precache-v4';
-const RUNTIME_CACHE_NAME = 'shnu-adult-study-plan-runtime-v4';
+const PRECACHE_NAME = 'study-plan-precache-v5';
+const RUNTIME_CACHE_NAME = 'study-plan-runtime-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   './src/app.js',
   './src/app-core.mjs',
   './src/content.mjs',
+  './src/exams.mjs',
 ];
 
 self.addEventListener('install', (event) => {

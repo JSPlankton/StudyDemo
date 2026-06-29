@@ -6,15 +6,21 @@ import {
   createAccount,
   switchAccount,
   getActiveAccount,
+  getActiveExamContext,
   getDailyPlan,
+  getExamSubjects,
   getLessonForTask,
   buildQuiz,
   completeTask,
   completeLesson,
   gradeQuiz,
   getStats,
+  getWrongBookItems,
   exportState,
   importState,
+  isTaskCompleted,
+  selectEconomistMajor,
+  selectExamCategory,
 } from '../src/app-core.mjs';
 
 test('accounts keep learning progress isolated', () => {
@@ -226,4 +232,188 @@ test('degree-english maps to degree and thesis lessons', () => {
   const lesson = getLessonForTask('degree-english', '2026-10-25');
 
   assert.equal(lesson.subject, '学位与论文');
+});
+test('middle economist requires a professional specialty before generating a plan', () => {
+  let state = createInitialState('2026-06-29');
+  state = createAccount(state, 'Me');
+  state = selectExamCategory(state, 'economist-intermediate-2026');
+
+  const pendingContext = getActiveExamContext(getActiveAccount(state));
+  assert.equal(pendingContext.examId, 'economist-intermediate-2026');
+  assert.equal(pendingContext.ready, false);
+  assert.throws(() => getDailyPlan('2026-07-01', pendingContext), /specialty|major|专业/i);
+
+  state = selectEconomistMajor(state, 'human-resources');
+  const readyContext = getActiveExamContext(getActiveAccount(state));
+  const plan = getDailyPlan('2026-07-01', readyContext);
+
+  assert.equal(readyContext.ready, true);
+  assert.equal(plan.some((task) => task.id === 'economist-foundation-daily'), true);
+  assert.equal(plan.some((task) => task.id === 'economist-professional-core'), true);
+  assert.equal(plan.some((task) => task.subject === '经济基础知识'), true);
+  assert.equal(plan.some((task) => task.subject === '人力资源管理'), true);
+});
+
+test('same account keeps adult-undergraduate and economist progress isolated', () => {
+  let state = createInitialState('2026-06-29');
+  state = createAccount(state, 'Me');
+
+  const adultContext = getActiveExamContext(getActiveAccount(state));
+  state = completeTask(state, '2026-07-01', 'english-daily', adultContext.examId);
+
+  state = selectExamCategory(state, 'economist-intermediate-2026');
+  state = selectEconomistMajor(state, 'human-resources');
+  const economistContext = getActiveExamContext(getActiveAccount(state));
+  state = completeTask(
+    state,
+    '2026-07-01',
+    'economist-foundation-daily',
+    economistContext.examId,
+    economistContext.majorId,
+  );
+
+  const account = getActiveAccount(state);
+  assert.equal(isTaskCompleted(account, '2026-07-01', 'english-daily', adultContext.examId), true);
+  assert.equal(isTaskCompleted(account, '2026-07-01', 'english-daily', economistContext.examId), false);
+  assert.equal(
+    isTaskCompleted(
+      account,
+      '2026-07-01',
+      'economist-foundation-daily',
+      economistContext.examId,
+      economistContext.majorId,
+    ),
+    true,
+  );
+  assert.equal(getStats(account, adultContext.examId).completedTaskCount, 1);
+  assert.equal(getStats(account, economistContext.examId, economistContext.majorId).completedTaskCount, 1);
+});
+
+test('same account keeps economist specialty progress isolated', () => {
+  let state = createInitialState('2026-06-29');
+  state = createAccount(state, 'Me');
+  state = selectExamCategory(state, 'economist-intermediate-2026');
+  state = selectEconomistMajor(state, 'human-resources');
+  const humanResourcesContext = getActiveExamContext(getActiveAccount(state));
+  state = completeTask(
+    state,
+    '2026-07-01',
+    'economist-professional-core',
+    humanResourcesContext.examId,
+    humanResourcesContext.majorId,
+  );
+
+  state = selectEconomistMajor(state, 'finance');
+  const financeContext = getActiveExamContext(getActiveAccount(state));
+  const account = getActiveAccount(state);
+
+  assert.equal(
+    isTaskCompleted(
+      account,
+      '2026-07-01',
+      'economist-professional-core',
+      humanResourcesContext.examId,
+      humanResourcesContext.majorId,
+    ),
+    true,
+  );
+  assert.equal(
+    isTaskCompleted(
+      account,
+      '2026-07-01',
+      'economist-professional-core',
+      financeContext.examId,
+      financeContext.majorId,
+    ),
+    false,
+  );
+  assert.equal(getStats(account, humanResourcesContext.examId, humanResourcesContext.majorId).completedTaskCount, 1);
+  assert.equal(getStats(account, financeContext.examId, financeContext.majorId).completedTaskCount, 0);
+});
+
+test('economist quiz uses foundation plus the selected specialty only', () => {
+  const quiz = buildQuiz({
+    examId: 'economist-intermediate-2026',
+    majorId: 'human-resources',
+    subject: '全部',
+    mode: 'daily',
+    count: 20,
+    date: '2026-07-01',
+  });
+
+  assert.equal(quiz.questions.length > 0, true);
+  assert.equal(
+    quiz.questions.every(
+      (question) =>
+        question.examId === 'economist-intermediate-2026' &&
+        ['经济基础知识', '人力资源管理'].includes(question.subject),
+    ),
+    true,
+  );
+});
+
+test('economist subject options are generated after specialty selection', () => {
+  assert.deepEqual(getExamSubjects('economist-intermediate-2026', null), []);
+  assert.deepEqual(getExamSubjects('economist-intermediate-2026', 'human-resources'), [
+    '全部',
+    '经济基础知识',
+    '人力资源管理',
+  ]);
+});
+
+test('non-default economist specialties keep their subject and starter lesson scoped', () => {
+  const context = { examId: 'economist-intermediate-2026', majorId: 'finance' };
+  const quiz = buildQuiz({
+    ...context,
+    subject: '金融',
+    mode: 'daily',
+    count: 10,
+    date: '2026-07-01',
+  });
+  const lesson = getLessonForTask('economist-professional-core', '2026-07-01', context);
+
+  assert.deepEqual(getExamSubjects(context.examId, context.majorId), ['全部', '经济基础知识', '金融']);
+  assert.equal(quiz.questions.length > 0, true);
+  assert.equal(quiz.questions.every((question) => question.subject === '金融' && question.majorId === 'finance'), true);
+  assert.equal(lesson.majorId, 'generic');
+});
+
+test('generic economist specialty lesson mistakes stay isolated by selected specialty', () => {
+  let state = createInitialState('2026-06-29');
+  state = createAccount(state, 'Me');
+  state = selectExamCategory(state, 'economist-intermediate-2026');
+  state = selectEconomistMajor(state, 'finance');
+  const financeContext = getActiveExamContext(getActiveAccount(state));
+  const financeLesson = getLessonForTask('economist-professional-core', '2026-07-01', financeContext);
+  const financeAnswers = Object.fromEntries(financeLesson.questions.map((question) => [question.id, -1]));
+  state = completeLesson(
+    state,
+    '2026-07-01',
+    'economist-professional-core',
+    financeLesson,
+    financeAnswers,
+    financeContext,
+  );
+
+  state = selectEconomistMajor(state, 'business');
+  const businessContext = getActiveExamContext(getActiveAccount(state));
+  const businessLesson = getLessonForTask('economist-professional-core', '2026-07-01', businessContext);
+  const businessAnswers = Object.fromEntries(businessLesson.questions.map((question) => [question.id, -1]));
+  state = completeLesson(
+    state,
+    '2026-07-01',
+    'economist-professional-core',
+    businessLesson,
+    businessAnswers,
+    businessContext,
+  );
+
+  const account = getActiveAccount(state);
+  const financeWrong = getWrongBookItems(account, financeContext.examId, financeContext.majorId);
+  const businessWrong = getWrongBookItems(account, businessContext.examId, businessContext.majorId);
+
+  assert.equal(financeWrong.length, financeLesson.questions.length);
+  assert.equal(businessWrong.length, businessLesson.questions.length);
+  assert.equal(financeWrong.every((item) => item.majorId === 'finance'), true);
+  assert.equal(businessWrong.every((item) => item.majorId === 'business'), true);
 });

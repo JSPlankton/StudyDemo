@@ -1,6 +1,6 @@
 {
-  "name": "上海师大成考专升本学习计划",
-  "short_name": "成考计划",
+  "name": "拿证学习计划",
+  "short_name": "学习计划",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f5f7fa",
