@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f766e">
+    <title>上海师大成考专升本学习计划</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <p class="eyebrow">上海师大成考专升本</p>
+            <h1>行政管理拿证计划</h1>
+          </div>
+        </div>
+        <button class="tool-button" type="button" data-action="export">备份</button>
+      </header>
+
+      <section id="profileBar" class="profile-bar" aria-live="polite"></section>
+
+      <main id="app" class="main-panel"></main>
+
+      <nav id="bottomNav" class="bottom-nav" aria-label="主导航">
+        <button type="button" data-view="today" class="nav-button is-active">今日</button>
+        <button type="button" data-view="calendar" class="nav-button">日历</button>
+        <button type="button" data-view="practice" class="nav-button">练习</button>
+        <button type="button" data-view="wrong" class="nav-button">错题</button>
+        <button type="button" data-view="plan" class="nav-button">计划</button>
+      </nav>
+    </div>
+
+    <input id="importFile" type="file" accept="application/json" hidden>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

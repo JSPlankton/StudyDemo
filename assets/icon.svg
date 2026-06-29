@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="成考计划">
+  <rect width="512" height="512" rx="96" fill="#0f766e"/>
+  <path d="M130 132h252c22 0 40 18 40 40v226c0 18-14 32-32 32H138c-27 0-48-21-48-48V172c0-22 18-40 40-40z" fill="#ffffff"/>
+  <path d="M138 132h240c24 0 44 20 44 44v12H138c-14 0-26 12-26 26v168c0 14 12 26 26 26h250c-5 13-18 22-33 22H138c-27 0-48-21-48-48V180c0-27 21-48 48-48z" fill="#d7f4ed"/>
+  <path d="M162 238h188" stroke="#0f766e" stroke-width="24" stroke-linecap="round"/>
+  <path d="M162 296h144" stroke="#2563eb" stroke-width="24" stroke-linecap="round"/>
+  <path d="M162 354h96" stroke="#c2410c" stroke-width="24" stroke-linecap="round"/>
+</svg>
